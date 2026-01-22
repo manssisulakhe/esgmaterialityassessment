@@ -1,9 +1,16 @@
 import { useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Leaf, Users, Building2, TrendingUp, Award, Target } from 'lucide-react';
+import { Leaf, Users, Building2, TrendingUp, Award, Target, BarChart3, PieChart as PieChartIcon } from 'lucide-react';
 import { TopicWithScore, ESGCategory } from '@/types/esg';
 import { cn } from '@/lib/utils';
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  ChartConfig,
+} from '@/components/ui/chart';
+import { BarChart, Bar, XAxis, YAxis, Cell, PieChart, Pie, ResponsiveContainer } from 'recharts';
 
 const CATEGORY_ICONS = {
   environmental: Leaf,
@@ -57,6 +64,55 @@ export function ResultsDashboard({ topics }: ResultsDashboardProps) {
 
     return { high, medium, low, avgScore, total: scoredTopics.length };
   }, [scoredTopics]);
+
+  const scoreDistribution = useMemo(() => {
+    const distribution = [
+      { range: '2-3', label: 'Low', count: 0, fill: 'hsl(var(--priority-low))' },
+      { range: '4-5', label: 'Medium-Low', count: 0, fill: 'hsl(var(--muted-foreground))' },
+      { range: '5-6', label: 'Medium', count: 0, fill: 'hsl(var(--priority-medium))' },
+      { range: '7-8', label: 'High', count: 0, fill: 'hsl(var(--priority-high))' },
+    ];
+
+    scoredTopics.forEach(t => {
+      const score = t.materiality_score || 0;
+      if (score <= 3) distribution[0].count++;
+      else if (score <= 5) distribution[1].count++;
+      else if (score <= 6) distribution[2].count++;
+      else distribution[3].count++;
+    });
+
+    return distribution.filter(d => d.count > 0);
+  }, [scoredTopics]);
+
+  const categoryBreakdown = useMemo(() => {
+    const breakdown = {
+      environmental: { name: 'Environmental', count: 0, avgScore: 0, fill: 'hsl(var(--environmental))' },
+      social: { name: 'Social', count: 0, avgScore: 0, fill: 'hsl(var(--social))' },
+      governance: { name: 'Governance', count: 0, avgScore: 0, fill: 'hsl(var(--governance))' },
+    };
+
+    scoredTopics.forEach(t => {
+      const cat = t.category as ESGCategory;
+      if (breakdown[cat]) {
+        breakdown[cat].count++;
+        breakdown[cat].avgScore += t.materiality_score || 0;
+      }
+    });
+
+    return Object.values(breakdown)
+      .filter(b => b.count > 0)
+      .map(b => ({
+        ...b,
+        avgScore: b.count > 0 ? Number((b.avgScore / b.count).toFixed(1)) : 0,
+      }));
+  }, [scoredTopics]);
+
+  const chartConfig: ChartConfig = {
+    count: { label: 'Topics' },
+    environmental: { label: 'Environmental', color: 'hsl(var(--environmental))' },
+    social: { label: 'Social', color: 'hsl(var(--social))' },
+    governance: { label: 'Governance', color: 'hsl(var(--governance))' },
+  };
 
   if (scoredTopics.length === 0) {
     return (
@@ -136,6 +192,87 @@ export function ResultsDashboard({ topics }: ResultsDashboardProps) {
                 <TrendingUp className="h-6 w-6 text-priority-medium" />
               </div>
             </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Charts Row */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Score Distribution Chart */}
+        <Card className="shadow-card">
+          <CardHeader>
+            <CardTitle className="font-display flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 text-primary" />
+              Score Distribution
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {scoreDistribution.length > 0 ? (
+              <ChartContainer config={chartConfig} className="h-[250px] w-full">
+                <BarChart data={scoreDistribution} layout="vertical">
+                  <XAxis type="number" />
+                  <YAxis dataKey="label" type="category" width={100} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="count" radius={4}>
+                    {scoreDistribution.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.fill} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ChartContainer>
+            ) : (
+              <p className="text-muted-foreground text-center py-8">No data to display</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Category Breakdown Chart */}
+        <Card className="shadow-card">
+          <CardHeader>
+            <CardTitle className="font-display flex items-center gap-2">
+              <PieChartIcon className="h-5 w-5 text-primary" />
+              Category Breakdown
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {categoryBreakdown.length > 0 ? (
+              <div className="flex flex-col items-center gap-4">
+                <ChartContainer config={chartConfig} className="h-[200px] w-full max-w-[300px]">
+                  <PieChart>
+                    <ChartTooltip content={<ChartTooltipContent nameKey="name" />} />
+                    <Pie
+                      data={categoryBreakdown}
+                      dataKey="count"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={80}
+                      innerRadius={40}
+                      strokeWidth={2}
+                    >
+                      {categoryBreakdown.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </ChartContainer>
+                <div className="flex flex-wrap justify-center gap-4">
+                  {categoryBreakdown.map((cat) => (
+                    <div key={cat.name} className="flex items-center gap-2 text-sm">
+                      <div
+                        className="h-3 w-3 rounded-full"
+                        style={{ backgroundColor: cat.fill }}
+                      />
+                      <span className="text-foreground">{cat.name}</span>
+                      <span className="text-muted-foreground">({cat.count})</span>
+                      <span className="text-muted-foreground">Avg: {cat.avgScore}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-center py-8">No data to display</p>
+            )}
           </CardContent>
         </Card>
       </div>
