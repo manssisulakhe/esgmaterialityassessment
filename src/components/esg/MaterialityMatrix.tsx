@@ -1,68 +1,143 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ScatterChart,
   Scatter,
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip,
   ResponsiveContainer,
-  ReferenceLine,
   ReferenceArea,
+  Cell,
 } from 'recharts';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Leaf, Users, Building2, Info } from 'lucide-react';
 import { TopicWithScore, ESGCategory } from '@/types/esg';
+import { cn } from '@/lib/utils';
 
 const CATEGORY_COLORS = {
-  environmental: '#2d9d5f',
-  social: '#3b82f6',
-  governance: '#7c3aed',
+  environmental: 'hsl(var(--environmental))',
+  social: 'hsl(var(--social))',
+  governance: 'hsl(var(--governance))',
 };
+
+const CATEGORY_ICONS = {
+  environmental: Leaf,
+  social: Users,
+  governance: Building2,
+};
+
+interface GroupedTopic {
+  x: number;
+  y: number;
+  topics: {
+    id: string;
+    name: string;
+    category: ESGCategory;
+    score: number;
+    stakeholder_importance: number;
+    business_impact: number;
+  }[];
+  count: number;
+  primaryCategory: ESGCategory;
+}
 
 interface MaterialityMatrixProps {
   topics: TopicWithScore[];
 }
 
 export function MaterialityMatrix({ topics }: MaterialityMatrixProps) {
+  const [selectedGroup, setSelectedGroup] = useState<GroupedTopic | null>(null);
+
   const scoredTopics = useMemo(
     () => topics.filter(t => t.materiality_score !== undefined),
     [topics]
   );
 
-  const data = useMemo(
-    () =>
-      scoredTopics.map(topic => ({
-        x: topic.business_impact || 0,
-        y: topic.stakeholder_importance || 0,
+  // Group topics by their x,y coordinates
+  const groupedData = useMemo(() => {
+    const groups: Record<string, GroupedTopic> = {};
+
+    scoredTopics.forEach(topic => {
+      const x = topic.business_impact || 0;
+      const y = topic.stakeholder_importance || 0;
+      const key = `${x}-${y}`;
+
+      if (!groups[key]) {
+        groups[key] = {
+          x,
+          y,
+          topics: [],
+          count: 0,
+          primaryCategory: topic.category as ESGCategory,
+        };
+      }
+
+      groups[key].topics.push({
+        id: topic.id,
         name: topic.name,
-        category: topic.category,
-        score: topic.materiality_score,
-      })),
-    [scoredTopics]
-  );
+        category: topic.category as ESGCategory,
+        score: topic.materiality_score || 0,
+        stakeholder_importance: y,
+        business_impact: x,
+      });
+      groups[key].count++;
+    });
 
-  const environmentalData = data.filter(d => d.category === 'environmental');
-  const socialData = data.filter(d => d.category === 'social');
-  const governanceData = data.filter(d => d.category === 'governance');
+    return Object.values(groups);
+  }, [scoredTopics]);
 
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      const item = payload[0].payload;
-      return (
-        <div className="rounded-lg border border-border bg-card p-3 shadow-lg">
-          <p className="font-medium text-foreground">{item.name}</p>
-          <p className="text-sm text-muted-foreground capitalize">{item.category}</p>
-          <div className="mt-2 space-y-1 text-sm">
-            <p>Stakeholder Importance: {item.y}</p>
-            <p>Business Impact: {item.x}</p>
-            <p className="font-medium text-primary">
-              Materiality Score: {item.score}
-            </p>
-          </div>
-        </div>
-      );
+  const handleMarkerClick = (data: GroupedTopic) => {
+    setSelectedGroup(prev => 
+      prev?.x === data.x && prev?.y === data.y ? null : data
+    );
+  };
+
+  const CustomMarker = (props: any) => {
+    const { cx, cy, payload } = props;
+    const count = payload.count;
+    const isSelected = selectedGroup?.x === payload.x && selectedGroup?.y === payload.y;
+    const baseRadius = count > 1 ? 14 : 10;
+    const radius = isSelected ? baseRadius + 4 : baseRadius;
+
+    // Determine color based on primary category or mixed
+    let fillColor = CATEGORY_COLORS[payload.primaryCategory];
+    if (count > 1) {
+      const categories = new Set(payload.topics.map((t: any) => t.category));
+      if (categories.size > 1) {
+        fillColor = 'hsl(var(--primary))';
+      }
     }
-    return null;
+
+    return (
+      <g 
+        style={{ cursor: 'pointer' }}
+        onClick={() => handleMarkerClick(payload)}
+      >
+        <circle
+          cx={cx}
+          cy={cy}
+          r={radius}
+          fill={fillColor}
+          stroke={isSelected ? 'hsl(var(--foreground))' : 'hsl(var(--background))'}
+          strokeWidth={isSelected ? 3 : 2}
+          opacity={0.9}
+        />
+        {count > 1 && (
+          <text
+            x={cx}
+            y={cy}
+            textAnchor="middle"
+            dominantBaseline="central"
+            fill="white"
+            fontSize={10}
+            fontWeight="bold"
+          >
+            {count}
+          </text>
+        )}
+      </g>
+    );
   };
 
   return (
@@ -134,25 +209,10 @@ export function MaterialityMatrix({ topics }: MaterialityMatrixProps) {
                   tick={{ fill: 'hsl(var(--muted-foreground))' }}
                 />
 
-                <Tooltip content={<CustomTooltip />} />
-
                 <Scatter
-                  name="Environmental"
-                  data={environmentalData}
-                  fill={CATEGORY_COLORS.environmental}
-                  shape="circle"
-                />
-                <Scatter
-                  name="Social"
-                  data={socialData}
-                  fill={CATEGORY_COLORS.social}
-                  shape="circle"
-                />
-                <Scatter
-                  name="Governance"
-                  data={governanceData}
-                  fill={CATEGORY_COLORS.governance}
-                  shape="circle"
+                  name="Topics"
+                  data={groupedData}
+                  shape={<CustomMarker />}
                 />
               </ScatterChart>
             </ResponsiveContainer>
@@ -174,6 +234,57 @@ export function MaterialityMatrix({ topics }: MaterialityMatrixProps) {
             <span className="text-sm text-muted-foreground">Governance</span>
           </div>
         </div>
+
+        {/* Info note */}
+        <div className="mt-4 flex items-start gap-2 rounded-lg bg-muted/50 p-3">
+          <Info className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+          <p className="text-xs text-muted-foreground">
+            Multiple ESG topics with identical scores are grouped and shown interactively upon selection.
+          </p>
+        </div>
+
+        {/* Selected Group Details Panel */}
+        {selectedGroup && (
+          <div className="mt-4 rounded-lg border border-border bg-card p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h4 className="font-medium text-foreground">
+                Topics at Position ({selectedGroup.x}, {selectedGroup.y})
+              </h4>
+              <Badge variant="secondary">{selectedGroup.count} topic{selectedGroup.count > 1 ? 's' : ''}</Badge>
+            </div>
+            <div className="space-y-3">
+              {selectedGroup.topics.map(topic => {
+                const Icon = CATEGORY_ICONS[topic.category];
+                return (
+                  <div
+                    key={topic.id}
+                    className="flex items-center gap-4 rounded-md border border-border bg-muted/30 p-3"
+                  >
+                    <Icon className={cn('h-5 w-5 flex-shrink-0', `text-${topic.category}`)} />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-foreground truncate">{topic.name}</p>
+                      <p className="text-xs text-muted-foreground capitalize">{topic.category}</p>
+                    </div>
+                    <div className="flex items-center gap-4 text-sm">
+                      <div className="text-center">
+                        <p className="text-xs text-muted-foreground">Stakeholder</p>
+                        <p className="font-medium text-foreground">{topic.stakeholder_importance}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xs text-muted-foreground">Business</p>
+                        <p className="font-medium text-foreground">{topic.business_impact}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xs text-muted-foreground">Score</p>
+                        <p className="font-bold text-primary">{topic.score}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
