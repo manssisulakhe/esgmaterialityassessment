@@ -27,19 +27,25 @@ const CATEGORY_ICONS = {
   governance: Building2,
 };
 
-interface GroupedTopic {
+interface PlottedTopic {
+  id: string;
+  name: string;
+  category: ESGCategory;
   x: number;
   y: number;
-  topics: {
-    id: string;
-    name: string;
-    category: ESGCategory;
-    score: number;
-    stakeholder_importance: number;
-    business_impact: number;
-  }[];
-  count: number;
-  primaryCategory: ESGCategory;
+  offsetX: number;
+  score: number;
+  stakeholder_importance: number;
+  business_impact: number;
+}
+
+interface SelectedTopic {
+  id: string;
+  name: string;
+  category: ESGCategory;
+  score: number;
+  stakeholder_importance: number;
+  business_impact: number;
 }
 
 interface MaterialityMatrixProps {
@@ -47,67 +53,80 @@ interface MaterialityMatrixProps {
 }
 
 export function MaterialityMatrix({ topics }: MaterialityMatrixProps) {
-  const [selectedGroup, setSelectedGroup] = useState<GroupedTopic | null>(null);
+  const [selectedTopic, setSelectedTopic] = useState<SelectedTopic | null>(null);
 
   const scoredTopics = useMemo(
     () => topics.filter(t => t.materiality_score !== undefined),
     [topics]
   );
 
-  // Group topics by their x,y coordinates
-  const groupedData = useMemo(() => {
-    const groups: Record<string, GroupedTopic> = {};
+  // Create individual markers with horizontal offsets for overlapping topics
+  const plottedData = useMemo(() => {
+    // First, group by coordinates to calculate offsets
+    const coordinateGroups: Record<string, TopicWithScore[]> = {};
 
     scoredTopics.forEach(topic => {
       const x = topic.business_impact || 0;
       const y = topic.stakeholder_importance || 0;
       const key = `${x}-${y}`;
 
-      if (!groups[key]) {
-        groups[key] = {
-          x,
-          y,
-          topics: [],
-          count: 0,
-          primaryCategory: topic.category as ESGCategory,
-        };
+      if (!coordinateGroups[key]) {
+        coordinateGroups[key] = [];
       }
-
-      groups[key].topics.push({
-        id: topic.id,
-        name: topic.name,
-        category: topic.category as ESGCategory,
-        score: topic.materiality_score || 0,
-        stakeholder_importance: y,
-        business_impact: x,
-      });
-      groups[key].count++;
+      coordinateGroups[key].push(topic);
     });
 
-    return Object.values(groups);
+    // Now create individual plotted topics with offsets
+    const result: PlottedTopic[] = [];
+
+    Object.values(coordinateGroups).forEach(group => {
+      const count = group.length;
+      const offsetStep = 12; // pixels between markers
+      const totalWidth = (count - 1) * offsetStep;
+      const startOffset = -totalWidth / 2;
+
+      group.forEach((topic, index) => {
+        result.push({
+          id: topic.id,
+          name: topic.name,
+          category: topic.category as ESGCategory,
+          x: topic.business_impact || 0,
+          y: topic.stakeholder_importance || 0,
+          offsetX: startOffset + index * offsetStep,
+          score: topic.materiality_score || 0,
+          stakeholder_importance: topic.stakeholder_importance || 0,
+          business_impact: topic.business_impact || 0,
+        });
+      });
+    });
+
+    return result;
   }, [scoredTopics]);
 
-  const handleMarkerClick = (data: GroupedTopic) => {
-    setSelectedGroup(prev => 
-      prev?.x === data.x && prev?.y === data.y ? null : data
+  const handleMarkerClick = (topic: PlottedTopic) => {
+    setSelectedTopic(prev => 
+      prev?.id === topic.id ? null : {
+        id: topic.id,
+        name: topic.name,
+        category: topic.category,
+        score: topic.score,
+        stakeholder_importance: topic.stakeholder_importance,
+        business_impact: topic.business_impact,
+      }
     );
   };
 
   const CustomMarker = (props: any) => {
     const { cx, cy, payload } = props;
-    const count = payload.count;
-    const isSelected = selectedGroup?.x === payload.x && selectedGroup?.y === payload.y;
-    const baseRadius = count > 1 ? 14 : 10;
-    const radius = isSelected ? baseRadius + 4 : baseRadius;
+    const isSelected = selectedTopic?.id === payload.id;
+    const baseRadius = 10;
+    const radius = isSelected ? baseRadius + 3 : baseRadius;
 
-    // Determine color based on primary category or mixed
-    let fillColor = CATEGORY_COLORS[payload.primaryCategory];
-    if (count > 1) {
-      const categories = new Set(payload.topics.map((t: any) => t.category));
-      if (categories.size > 1) {
-        fillColor = 'hsl(var(--primary))';
-      }
-    }
+    // Apply horizontal offset
+    const adjustedCx = cx + payload.offsetX;
+
+    // Color based on ESG category
+    const fillColor = CATEGORY_COLORS[payload.category];
 
     return (
       <g 
@@ -115,7 +134,7 @@ export function MaterialityMatrix({ topics }: MaterialityMatrixProps) {
         onClick={() => handleMarkerClick(payload)}
       >
         <circle
-          cx={cx}
+          cx={adjustedCx}
           cy={cy}
           r={radius}
           fill={fillColor}
@@ -123,19 +142,6 @@ export function MaterialityMatrix({ topics }: MaterialityMatrixProps) {
           strokeWidth={isSelected ? 3 : 2}
           opacity={0.9}
         />
-        {count > 1 && (
-          <text
-            x={cx}
-            y={cy}
-            textAnchor="middle"
-            dominantBaseline="central"
-            fill="white"
-            fontSize={10}
-            fontWeight="bold"
-          >
-            {count}
-          </text>
-        )}
       </g>
     );
   };
@@ -211,7 +217,7 @@ export function MaterialityMatrix({ topics }: MaterialityMatrixProps) {
 
                 <Scatter
                   name="Topics"
-                  data={groupedData}
+                  data={plottedData}
                   shape={<CustomMarker />}
                 />
               </ScatterChart>
@@ -243,45 +249,38 @@ export function MaterialityMatrix({ topics }: MaterialityMatrixProps) {
           </p>
         </div>
 
-        {/* Selected Group Details Panel */}
-        {selectedGroup && (
+        {/* Selected Topic Details Panel */}
+        {selectedTopic && (
           <div className="mt-4 rounded-lg border border-border bg-card p-4">
             <div className="mb-3 flex items-center justify-between">
               <h4 className="font-medium text-foreground">
-                Topics at Position ({selectedGroup.x}, {selectedGroup.y})
+                Selected Topic Details
               </h4>
-              <Badge variant="secondary">{selectedGroup.count} topic{selectedGroup.count > 1 ? 's' : ''}</Badge>
+              <Badge variant="secondary" className="capitalize">{selectedTopic.category}</Badge>
             </div>
-            <div className="space-y-3">
-              {selectedGroup.topics.map(topic => {
-                const Icon = CATEGORY_ICONS[topic.category];
-                return (
-                  <div
-                    key={topic.id}
-                    className="flex items-center gap-4 rounded-md border border-border bg-muted/30 p-3"
-                  >
-                    <Icon className={cn('h-5 w-5 flex-shrink-0', `text-${topic.category}`)} />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-foreground truncate">{topic.name}</p>
-                      <p className="text-xs text-muted-foreground capitalize">{topic.category}</p>
-                    </div>
-                    <div className="flex items-center gap-4 text-sm">
-                      <div className="text-center">
-                        <p className="text-xs text-muted-foreground">Stakeholder</p>
-                        <p className="font-medium text-foreground">{topic.stakeholder_importance}</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-xs text-muted-foreground">Business</p>
-                        <p className="font-medium text-foreground">{topic.business_impact}</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-xs text-muted-foreground">Score</p>
-                        <p className="font-bold text-primary">{topic.score}</p>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="flex items-center gap-4 rounded-md border border-border bg-muted/30 p-3">
+              {(() => {
+                const Icon = CATEGORY_ICONS[selectedTopic.category];
+                return <Icon className={cn('h-5 w-5 flex-shrink-0', `text-${selectedTopic.category}`)} />;
+              })()}
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-foreground truncate">{selectedTopic.name}</p>
+                <p className="text-xs text-muted-foreground capitalize">{selectedTopic.category}</p>
+              </div>
+              <div className="flex items-center gap-4 text-sm">
+                <div className="text-center">
+                  <p className="text-xs text-muted-foreground">Stakeholder</p>
+                  <p className="font-medium text-foreground">{selectedTopic.stakeholder_importance}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-muted-foreground">Business</p>
+                  <p className="font-medium text-foreground">{selectedTopic.business_impact}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-muted-foreground">Score</p>
+                  <p className="font-bold text-primary">{selectedTopic.score}</p>
+                </div>
+              </div>
             </div>
           </div>
         )}
