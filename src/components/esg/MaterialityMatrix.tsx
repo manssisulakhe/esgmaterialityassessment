@@ -37,6 +37,7 @@ interface PlottedTopic {
   score: number;
   stakeholder_importance: number;
   business_impact: number;
+  coordKey: string;
 }
 
 interface SelectedTopic {
@@ -54,34 +55,36 @@ interface MaterialityMatrixProps {
 
 export function MaterialityMatrix({ topics }: MaterialityMatrixProps) {
   const [selectedTopic, setSelectedTopic] = useState<SelectedTopic | null>(null);
+  const [lastClickedCoord, setLastClickedCoord] = useState<string | null>(null);
+  const [cycleIndex, setCycleIndex] = useState(0);
 
   const scoredTopics = useMemo(
     () => topics.filter(t => t.materiality_score !== undefined),
     [topics]
   );
 
-  // Create individual markers with horizontal offsets for overlapping topics
-  const plottedData = useMemo(() => {
-    // First, group by coordinates to calculate offsets
-    const coordinateGroups: Record<string, TopicWithScore[]> = {};
-
+  // Group topics by coordinates for cycling behavior
+  const coordinateGroups = useMemo(() => {
+    const groups: Record<string, TopicWithScore[]> = {};
     scoredTopics.forEach(topic => {
       const x = topic.business_impact || 0;
       const y = topic.stakeholder_importance || 0;
       const key = `${x}-${y}`;
-
-      if (!coordinateGroups[key]) {
-        coordinateGroups[key] = [];
+      if (!groups[key]) {
+        groups[key] = [];
       }
-      coordinateGroups[key].push(topic);
+      groups[key].push(topic);
     });
+    return groups;
+  }, [scoredTopics]);
 
-    // Now create individual plotted topics with offsets
+  // Create individual markers with horizontal offsets for overlapping topics
+  const plottedData = useMemo(() => {
     const result: PlottedTopic[] = [];
 
-    Object.values(coordinateGroups).forEach(group => {
+    Object.entries(coordinateGroups).forEach(([key, group]) => {
       const count = group.length;
-      const offsetStep = 12; // pixels between markers
+      const offsetStep = 12;
       const totalWidth = (count - 1) * offsetStep;
       const startOffset = -totalWidth / 2;
 
@@ -96,24 +99,56 @@ export function MaterialityMatrix({ topics }: MaterialityMatrixProps) {
           score: topic.materiality_score || 0,
           stakeholder_importance: topic.stakeholder_importance || 0,
           business_impact: topic.business_impact || 0,
+          coordKey: key,
         });
       });
     });
 
     return result;
-  }, [scoredTopics]);
+  }, [coordinateGroups]);
 
   const handleMarkerClick = (topic: PlottedTopic) => {
-    setSelectedTopic(prev => 
-      prev?.id === topic.id ? null : {
-        id: topic.id,
-        name: topic.name,
-        category: topic.category,
-        score: topic.score,
-        stakeholder_importance: topic.stakeholder_importance,
-        business_impact: topic.business_impact,
+    const group = coordinateGroups[topic.coordKey];
+    
+    if (group.length === 1) {
+      // Single topic at this coordinate - toggle selection
+      setSelectedTopic(prev => 
+        prev?.id === topic.id ? null : {
+          id: topic.id,
+          name: topic.name,
+          category: topic.category,
+          score: topic.score,
+          stakeholder_importance: topic.stakeholder_importance,
+          business_impact: topic.business_impact,
+        }
+      );
+      setLastClickedCoord(topic.coordKey);
+      setCycleIndex(0);
+    } else {
+      // Multiple topics - cycle through them
+      let newIndex: number;
+      
+      if (lastClickedCoord === topic.coordKey && selectedTopic) {
+        // Same coordinate clicked again - cycle to next topic
+        newIndex = (cycleIndex + 1) % group.length;
+      } else {
+        // New coordinate or first click - start at the clicked topic's index
+        const clickedIndex = group.findIndex(t => t.id === topic.id);
+        newIndex = clickedIndex >= 0 ? clickedIndex : 0;
       }
-    );
+      
+      const nextTopic = group[newIndex];
+      setSelectedTopic({
+        id: nextTopic.id,
+        name: nextTopic.name,
+        category: nextTopic.category as ESGCategory,
+        score: nextTopic.materiality_score || 0,
+        stakeholder_importance: nextTopic.stakeholder_importance || 0,
+        business_impact: nextTopic.business_impact || 0,
+      });
+      setLastClickedCoord(topic.coordKey);
+      setCycleIndex(newIndex);
+    }
   };
 
   const CustomMarker = (props: any) => {
@@ -245,7 +280,7 @@ export function MaterialityMatrix({ topics }: MaterialityMatrixProps) {
         <div className="mt-4 flex items-start gap-2 rounded-lg bg-muted/50 p-3">
           <Info className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
           <p className="text-xs text-muted-foreground">
-            Multiple ESG topics with identical scores are grouped and shown interactively upon selection.
+            Click markers to view topic details. Topics with identical scores can be cycled through with repeated clicks.
           </p>
         </div>
 
