@@ -4,7 +4,7 @@ import { Loader2 } from 'lucide-react';
 import { Header } from '@/components/esg/Header';
 import { ProjectSelector } from '@/components/esg/ProjectSelector';
 import { ESGCategorySection } from '@/components/esg/ESGCategorySection';
-import { SurveyCard } from '@/components/esg/SurveyCard';
+import { SurveyView } from '@/components/esg/SurveyView';
 import { MaterialityMatrix } from '@/components/esg/MaterialityMatrix';
 import { ResultsDashboard } from '@/components/esg/ResultsDashboard';
 import { ExportTools } from '@/components/esg/ExportTools';
@@ -94,21 +94,11 @@ const Index = () => {
             </TabsContent>
 
             <TabsContent value="survey" className="animate-fade-in">
-              {topics.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground">
-                  Add ESG topics first to start the survey.
-                </div>
-              ) : (
-                <div className="space-y-4 max-w-3xl mx-auto">
-                  {topics.map(topic => (
-                    <SurveyCard
-                      key={topic.id}
-                      topic={topic}
-                      onSave={(si, bi) => saveSurveyResponse(topic.id, si, bi)}
-                    />
-                  ))}
-                </div>
-              )}
+              <SurveyView
+                topics={topics}
+                onSave={saveSurveyResponse}
+                onNavigateToMatrix={() => setActiveTab('matrix')}
+              />
             </TabsContent>
 
             <TabsContent value="matrix" className="animate-fade-in">
