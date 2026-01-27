@@ -1,10 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Leaf, Users, Building2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Leaf, Users, Building2, ChevronLeft, ChevronRight, Check } from 'lucide-react';
 import { TopicWithScore, ESGCategory, IMPORTANCE_LEVELS, IMPACT_LEVELS } from '@/types/esg';
 import { cn } from '@/lib/utils';
-import { toast } from 'sonner';
 
 const CATEGORY_ICONS = {
   environmental: Leaf,
@@ -61,7 +60,7 @@ function ScoreCard({ value, label, description, selected, onClick }: ScoreCardPr
 
 interface SurveyViewProps {
   topics: TopicWithScore[];
-  onSave: (topicId: string, stakeholderImportance: number, businessImpact: number) => Promise<any>;
+  onSave: (topicId: string, stakeholderImportance: number, businessImpact: number, silent?: boolean) => Promise<any>;
   onNavigateToMatrix: () => void;
 }
 
@@ -69,7 +68,8 @@ export function SurveyView({ topics, onSave, onNavigateToMatrix }: SurveyViewPro
   const [currentIndex, setCurrentIndex] = useState(0);
   const [stakeholderImportance, setStakeholderImportance] = useState<number | null>(null);
   const [businessImpact, setBusinessImpact] = useState<number | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const currentTopic = topics[currentIndex];
   const isLastTopic = currentIndex === topics.length - 1;
@@ -82,6 +82,42 @@ export function SurveyView({ topics, onSave, onNavigateToMatrix }: SurveyViewPro
     }
   }, [currentTopic?.id]);
 
+  // Auto-save when either value changes (debounced)
+  useEffect(() => {
+    if (!currentTopic) return;
+    
+    // Only auto-save if at least one value is selected
+    if (stakeholderImportance === null && businessImpact === null) return;
+    
+    // Skip if values match what's already saved
+    if (
+      stakeholderImportance === currentTopic.stakeholder_importance &&
+      businessImpact === currentTopic.business_impact
+    ) return;
+
+    // Clear previous timeout
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    // Debounce auto-save by 300ms
+    saveTimeoutRef.current = setTimeout(async () => {
+      // Use defaults for missing values during partial save
+      const importance = stakeholderImportance ?? 1;
+      const impact = businessImpact ?? 1;
+      
+      setSaving(true);
+      await onSave(currentTopic.id, importance, impact, true); // silent = true
+      setSaving(false);
+    }, 300);
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [stakeholderImportance, businessImpact, currentTopic?.id]);
+
   if (topics.length === 0) {
     return (
       <div className="text-center py-12 text-muted-foreground">
@@ -93,40 +129,6 @@ export function SurveyView({ topics, onSave, onNavigateToMatrix }: SurveyViewPro
   const Icon = CATEGORY_ICONS[currentTopic.category as ESGCategory];
   const colorClass = CATEGORY_COLORS[currentTopic.category as ESGCategory];
 
-  const handleSubmit = async () => {
-    // Validate both questions are answered
-    if (stakeholderImportance === null) {
-      toast.error('Please select stakeholder importance');
-      return;
-    }
-    if (businessImpact === null) {
-      toast.error('Please select business impact');
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      // Save the survey response (total_score calculated in backend/hook)
-      const result = await onSave(currentTopic.id, stakeholderImportance, businessImpact);
-      
-      if (result) {
-        toast.success('Survey response saved successfully');
-        
-        // Navigate to next topic or Matrix tab
-        if (isLastTopic) {
-          onNavigateToMatrix();
-        } else {
-          setCurrentIndex(prev => prev + 1);
-        }
-      }
-    } catch (error) {
-      console.error('Error submitting survey:', error);
-      toast.error('Failed to save survey response');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   const handlePrevious = () => {
     if (currentIndex > 0) {
       setCurrentIndex(prev => prev - 1);
@@ -137,6 +139,10 @@ export function SurveyView({ topics, onSave, onNavigateToMatrix }: SurveyViewPro
     if (currentIndex < topics.length - 1) {
       setCurrentIndex(prev => prev + 1);
     }
+  };
+
+  const handleFinishSurvey = () => {
+    onNavigateToMatrix();
   };
 
   return (
@@ -178,7 +184,10 @@ export function SurveyView({ topics, onSave, onNavigateToMatrix }: SurveyViewPro
                 <p className="text-sm text-muted-foreground">{currentTopic.description}</p>
               )}
             </div>
-            {currentTopic.materiality_score !== undefined && (
+            {saving && (
+              <span className="ml-auto text-xs text-muted-foreground">Saving...</span>
+            )}
+            {currentTopic.materiality_score !== undefined && !saving && (
               <span className="ml-auto rounded-full bg-primary px-3 py-1 text-sm font-medium text-primary-foreground">
                 Score: {currentTopic.materiality_score}
               </span>
@@ -227,7 +236,7 @@ export function SurveyView({ topics, onSave, onNavigateToMatrix }: SurveyViewPro
         </div>
       </Card>
 
-      {/* Navigation and Submit */}
+      {/* Navigation */}
       <div className="flex items-center justify-between pt-4">
         <Button
           variant="outline"
@@ -239,21 +248,23 @@ export function SurveyView({ topics, onSave, onNavigateToMatrix }: SurveyViewPro
         </Button>
 
         <div className="flex gap-2">
-          {!isLastTopic && (
+          {!isLastTopic ? (
             <Button
-              variant="ghost"
+              variant="default"
               onClick={handleNext}
             >
-              Skip
+              Next Topic
               <ChevronRight className="h-4 w-4 ml-1" />
             </Button>
+          ) : (
+            <Button
+              onClick={handleFinishSurvey}
+              className="gap-2"
+            >
+              <Check className="h-4 w-4" />
+              Finish Survey
+            </Button>
           )}
-          <Button
-            onClick={handleSubmit}
-            disabled={submitting}
-          >
-            {submitting ? 'Saving...' : isLastTopic ? 'Submit & View Matrix' : 'Submit Survey'}
-          </Button>
         </div>
       </div>
     </div>

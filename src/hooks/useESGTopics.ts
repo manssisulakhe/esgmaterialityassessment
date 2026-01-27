@@ -103,7 +103,8 @@ export function useESGTopics(projectId: string | null) {
   const saveSurveyResponse = async (
     topicId: string,
     stakeholderImportance: number,
-    businessImpact: number
+    businessImpact: number,
+    silent: boolean = false
   ) => {
     if (!projectId) return null;
 
@@ -161,11 +162,15 @@ export function useESGTopics(projectId: string | null) {
         )
       );
 
-      toast.success('Response saved');
+      if (!silent) {
+        toast.success('Response saved');
+      }
       return response;
     } catch (error) {
       console.error('Error saving response:', error);
-      toast.error('Failed to save response');
+      if (!silent) {
+        toast.error('Failed to save response');
+      }
       return null;
     }
   };
