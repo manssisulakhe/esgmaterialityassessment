@@ -34,16 +34,19 @@ export function useFirestoreProjects() {
       setProjects(projectsData);
       
       // Set first project as active if none selected
-      if (projectsData.length > 0 && !activeProjectId) {
-        setActiveProjectId(projectsData[0].id);
-      }
+      setActiveProjectId(prev => {
+        if (!prev && projectsData.length > 0) {
+          return projectsData[0].id;
+        }
+        return prev;
+      });
     } catch (error) {
       console.error('🔥 Error fetching projects:', error);
       toast.error('Failed to load projects from Firestore');
     } finally {
       setLoading(false);
     }
-  }, [activeProjectId]);
+  }, []);
 
   useEffect(() => {
     fetchProjects();
