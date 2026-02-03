@@ -42,7 +42,7 @@ const CATEGORY_CONFIG = {
 interface ESGCategorySectionProps {
   category: ESGCategory;
   topics: TopicWithScore[];
-  onAddTopic: (name: string, description?: string) => Promise<unknown>;
+  onAddTopic: (name: string, description?: string) => Promise<void>;
   onDeleteTopic: (topicId: string) => Promise<void>;
 }
 

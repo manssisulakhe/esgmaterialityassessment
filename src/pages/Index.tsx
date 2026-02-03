@@ -8,8 +8,8 @@ import { SurveyView } from '@/components/esg/SurveyView';
 import { MaterialityMatrix } from '@/components/esg/MaterialityMatrix';
 import { ResultsDashboard } from '@/components/esg/ResultsDashboard';
 import { ExportTools } from '@/components/esg/ExportTools';
-import { useFirestoreProjects } from '@/hooks/useFirestoreProjects';
-import { useFirestoreTopics } from '@/hooks/useFirestoreTopics';
+import { useProjects } from '@/hooks/useProjects';
+import { useESGTopics } from '@/hooks/useESGTopics';
 import { ESGCategory } from '@/types/esg';
 
 const Index = () => {
@@ -20,7 +20,7 @@ const Index = () => {
     setActiveProjectId,
     createProject,
     loading: projectsLoading,
-  } = useFirestoreProjects();
+  } = useProjects();
 
   const {
     topics,
@@ -30,7 +30,7 @@ const Index = () => {
     saveSurveyResponse,
     getTopicsByCategory,
     getScoredTopics,
-  } = useFirestoreTopics(activeProjectId);
+  } = useESGTopics(activeProjectId);
 
   const [activeTab, setActiveTab] = useState('topics');
 
